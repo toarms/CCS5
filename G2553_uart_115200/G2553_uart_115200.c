@@ -43,22 +43,21 @@
  *
  * --/COPYRIGHT--*/
 //******************************************************************************
-//   MSP430G2xx3 Demo - USCI_A0, Ultra-Low Pwr UART 9600 Echo ISR, 32kHz ACLK
+//   MSP430G2xx3 Demo - USCI_A0, 115200 UART Echo ISR, DCO SMCLK
 //
-//   Description: Echo a received character, RX ISR used. Normal mode is LPM3,
+//   Description: Echo a received character, RX ISR used. Normal mode is LPM0.
 //   USCI_A0 RX interrupt triggers TX Echo.
-//   ACLK = BRCLK = LFXT1 = 32768Hz, MCLK = SMCLK = DCO ~1.2MHz
-//   Baud rate divider with 32768Hz XTAL @9600 = 32768Hz/9600 = 3.41
-//* An external watch crystal is required on XIN XOUT for ACLK *//
+//   Baud rate divider with 1MHz = 1MHz/115200 = ~8.7
+//   ACLK = n/a, MCLK = SMCLK = CALxxx_1MHZ = 1MHz
 //
 //                MSP430G2xx3
 //             -----------------
 //         /|\|              XIN|-
-//          | |                 | 32kHz
+//          | |                 |
 //          --|RST          XOUT|-
 //            |                 |
 //            |     P1.2/UCA0TXD|------------>
-//            |                 | 9600 - 8N1
+//            |                 | 115200 - 8N1
 //            |     P1.1/UCA0RXD|<------------
 //
 //   D. Dang
@@ -68,77 +67,32 @@
 //******************************************************************************
 #include <msp430.h>
 
-#define BUTTON BIT3
-void UART_TX(char * tx_data);            // Function Prototype for TX
-
 int main(void)
 {
   WDTCTL = WDTPW + WDTHOLD;                 // Stop WDT
-  if (CALBC1_1MHZ == 0xFF)
+  if (CALBC1_1MHZ==0xFF)					// If calibration constant erased
   {
-	  while(1);
+    while(1);                               // do not load, trap CPU!!
   }
-  DCOCTL = 0;
-  BCSCTL1 = CALBC1_1MHZ;
+  DCOCTL = 0;                               // Select lowest DCOx and MODx settings
+  BCSCTL1 = CALBC1_1MHZ;                    // Set DCO
   DCOCTL = CALDCO_1MHZ;
-
-  P1DIR = 0xFF;                             // All P1.x outputs
-  P1OUT = 0;                                // All P1.x reset
-  P2DIR = 0xFF;                             // All P2.x outputs
-  P2OUT = 0;                                // All P2.x reset
-
   P1SEL = BIT1 + BIT2 ;                     // P1.1 = RXD, P1.2=TXD
-  P1SEL2= BIT1 + BIT2 ;                     // P1.1 = RXD, P1.2=TXD
-  P3DIR = 0xFF;                             // All P3.x outputs
-  P3OUT = 0;                                // All P3.x reset
-
-  UCA0CTL1 |= UCSSEL_2;                     // CLK = ACLK
-  UCA0BR0 = 104;                           // 32kHz/9600 = 3.41
-  UCA0BR1 = 0x00;
-  UCA0MCTL = UCBRS0;
- // UCA0MCTL = UCBRS2 + UCBRS0;               // Modulation UCBRSx = 3
+  P1SEL2 = BIT1 + BIT2;
+  UCA0CTL1 |= UCSSEL_2;                     // SMCLK
+  UCA0BR0 = 8;                              // 1MHz 115200
+  UCA0BR1 = 0;                              // 1MHz 115200
+  UCA0MCTL = UCBRS2 + UCBRS0;               // Modulation UCBRSx = 5
   UCA0CTL1 &= ~UCSWRST;                     // **Initialize USCI state machine**
   IE2 |= UCA0RXIE;                          // Enable USCI_A0 RX interrupt
 
-  P1DIR |= BIT0 + BIT6;
-  P1OUT &= ~(BIT0 + BIT6);
-  P1DIR &=~BUTTON;                  // Ensure button is input (sets a 0 in P1DIR register at location BIT3)
-  P1OUT |=  BUTTON;                 // Enables pullup resistor on button
-  P1REN |=  BUTTON;
-
-  /*
-  while(1)                          // While 1 is equal to 1 (forever)
-  {
-      if(!((P1IN & BUTTON)==BUTTON)) // Was button pressed?
-      {
-          UART_TX("Hello World! \r\n");  // If yes, Transmit message & drink beer
-          P1OUT ^= BIT0;
-          __delay_cycles(200000); //Debounce button so signal is not sent multiple times
-      }
-  }
-  */
-
-  __bis_SR_register(LPM3_bits + GIE);
-  while(1);
-}
-
-
-void UART_TX(char * tx_data) // Define a function which accepts a character pointer to an array
-{
-    unsigned int i=0;
-    while(tx_data[i]) // Increment through array, look for null pointer (0) at end of string
-    {
-        while ((UCA0STAT & UCBUSY)); // Wait if line TX/RX module is busy with data
-        UCA0TXBUF = tx_data[i]; // Send out element i of tx_data array on UART bus
-        P1OUT ^= BIT6;
-        i++; // Increment variable for array address
-    }
+  __bis_SR_register(LPM0_bits + GIE);       // Enter LPM0, interrupts enabled
 }
 
 // Echo back RXed character, confirm TX buffer is ready first
 #pragma vector=USCIAB0RX_VECTOR
 __interrupt void USCI0RX_ISR(void)
 {
-  while (!(IFG2&UCA0TXIFG));                 // USCI_A0 TX buffer ready?
-  UCA0TXBUF = UCA0RXBUF;                     // TX -> RXed character
+  while (!(IFG2&UCA0TXIFG));                // USCI_A0 TX buffer ready?
+  UCA0TXBUF = UCA0RXBUF;                    // TX -> RXed character
 }

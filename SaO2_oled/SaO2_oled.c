@@ -7,11 +7,11 @@ struct meta_b
 };
 
 // P1 is Data-Port (Parallel-Interface)
-#define CS		BIT4		// P2.4
-#define RES		BIT3		// P2.3
-#define DC		BIT2		// P2.2
-#define WR		BIT1		// P2.1
-#define RD		BIT0		// P2.0
+#define CS		BIT3		// P6.3
+#define RES		BIT4		// P6.4
+#define DC		BIT5		// P6.5
+#define WR		BIT6		// P6.6
+#define RD		BIT7		// P6.7
 
 #define lcd_width		128
 #define lcd_height		64
@@ -209,14 +209,14 @@ static void fill_display(unsigned char width, unsigned char height, unsigned cha
 static void set_instruction(unsigned char register_sel, unsigned char number)
 {
 	if(register_sel)
-		P2OUT|=DC;
-	else P2OUT&=~DC;
+		P6OUT|=DC;
+	else P6OUT&=~DC;
 
-	P2OUT&=~CS;					// start condition
+	P6OUT&=~CS;					// start condition
 	P1OUT=number;
-	P2OUT|=WR;
-	P2OUT&=~WR;
-	P2OUT|=CS;
+	P6OUT|=WR;
+	P6OUT&=~WR;
+	P6OUT|=CS;
 }
 
 static void set_cursor(unsigned char x, unsigned char y)
@@ -230,7 +230,7 @@ static void init_LCD(void)
 {
 	unsigned char byte=sizeof(init_cmd_array);
 	wait_ms(100);
-	P2OUT|=RES;
+	P6OUT|=RES;
 
 	while(byte)
 	{
@@ -246,9 +246,9 @@ static void init_ports(void)
 {
 	P1DIR|=0xFF;				// parallel port for OLED-Display
 	P1OUT&=~0xFF;
-	P2DIR|=CS+DC+WR+RD+RES;
-	P2OUT&=~RES+WR+RD;			// reset, write, read LOW
-	P2OUT|=CS;					// chip select HIGH
+	P6DIR|=CS+DC+WR+RD+RES;
+	P6OUT&=~RES+WR+RD;			// reset, write, read LOW
+	P6OUT|=CS;					// chip select HIGH
 }
 
 static void wait_ms(unsigned int m_sec)
@@ -380,6 +380,12 @@ void main(void)
 	//BCSCTL1=CALBC1_8MHZ;
   	//DCOCTL=CALDCO_8MHZ;
 
+	P2DIR |= BIT1;
+	P2OUT |= BIT1;
+
+	P2DIR |= BIT2 + BIT3;
+	P2OUT |= BIT2 + BIT3;
+
   	init_ports();
   	init_LCD();
 
@@ -387,7 +393,14 @@ void main(void)
   	write_string(0,3,"good",1);
   	write_string(0,5,"9876543210", 1);
 
-  	while(1);
+  	while(1) {
+  		P2OUT |= BIT2 + BIT3;
+  		__delay_cycles(1000000);
+
+  		P2OUT &= ~(BIT2+BIT3);
+  		__delay_cycles(1000000);
+  	}
+
 }
 
 
