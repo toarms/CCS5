@@ -76,11 +76,25 @@
 //******************************************************************************
 #include <msp430.h>
 
+#define PB_PIN		BIT1	// push button:		P1.1
+#define IR_RX_PIN	BIT2	// ir red led rx: 	p1.2
+#define RED_RX_PIN	BIT3	// red led rx: 		p1.3
+
+void UART_TX(char * tx_data);
+
 int main(void)
 {
   volatile unsigned int i;
 
   WDTCTL = WDTPW+WDTHOLD;                   // Stop WDT
+
+  /*
+  DCOCTL = 0;                               // Select lowest DCOx and MODx settings
+  BCSCTL1 = CALBC1_1MHZ;                    // Set DCO
+  DCOCTL = CALDCO_1MHZ;
+*/
+
+
   BCSCTL1 &= ~XT2OFF;                       // Activate XT2 high freq xtal
   BCSCTL3 |= XT2S_2;                        // 3 ?16MHz crystal or resonator
 
@@ -92,27 +106,116 @@ int main(void)
   }
   while ((IFG1 & OFIFG));                   // OSCFault flag still set?
 
-  BCSCTL2 |= SELM_2;                        // MCLK = XT2 HF XTAL (safe)
+ // BCSCTL2 |= SELM_2 + DIVM_3;                        // MCLK = XT2 HF XTAL (safe)
+  BCSCTL2 |= (SELM_2 + SELS);                        // MCLK = XT2 HF XTAL (safe)
+
 
   P5DIR |= 0x10;                            // P5.4= output direction
   P5SEL |= 0x10;                            // P5.4= MCLK option select
 
+
+  // Timer A
   //Initialize Timer A to generate one-second interrupt
  // TACCTL0 = CCIE;                           // TACCR0 interrupt enabled
   //TACCR0 = 32767;                           // Set CCR0 to 32767(ACLK=32.768Hz)
  // TACTL = TASSEL_1 + MC_1;                  // ACLK, up mode
 
-  P3DIR |= BIT4;                            // Set P1.0 to output direction
+
 
 // An immediate Osc Fault will occur next
-  IE1 |= OFIE;                              // Enable osc fault interrupt
+ // IE1 |= OFIE;                              // Enable osc fault interrupt
 
+  // Uart
+  P3SEL |= BIT6+BIT7;                       // P3.6,7 = USCI_A1 TXD/RXD
+  UCA1CTL1 |= UCSSEL_2;                     // SMCLK
+  UCA1BR0 = 0x45;                              // 1MHz 115200
+  UCA1BR1 = 0x00;                              // 1MHz 115200
+ // UCA1MCTL = UCBRS2 + UCBRS0;               // Modulation UCBRSx = 5
+  UCA1MCTL = 0x00;
+  UCA1CTL1 &= ~UCSWRST;                     // **Initialize USCI state machine**
+ // IE2 |= UCA1RXIE;                          // Enable USCI_A0 RX interrupt
+
+  // Init ports
+  P3DIR |= BIT4;                            // Set led to output direction
+  // RED an IR RED RX PINs
+  P1DIR &= ~(RED_RX_PIN + IR_RX_PIN);
+  P1REN |= (RED_RX_PIN + IR_RX_PIN);
+  P1OUT |= (RED_RX_PIN + IR_RX_PIN);
+
+  P1IES |= (RED_RX_PIN + IR_RX_PIN);
+  P1IE  |= (RED_RX_PIN + IR_RX_PIN);
+  P1IFG = 0;
 
   while(1)
   {
-//    _BIS_SR(LPM3_bits + GIE);               // Enter LPM3, enable interrupts
-    P3OUT |= BIT4;                          // Toggle P1.0
+    _BIS_SR(LPM3_bits + GIE);               // Enter LPM3, enable interrupts
+    P3OUT ^= BIT4;                          // Toggle led
+    //UART_TX("1234567890");
+    //__delay_cycles(1000000);
   }
+}
+
+void UART_TX(char * tx_data) // Define a function which accepts a character pointer to an array
+{
+	unsigned int temp;
+	unsigned int counter = 0x0009;
+
+    //unsigned int i=0;
+	while (!(UC1IFG&UCA1TXIFG));
+    UCA1TXBUF = 0x00;				// Byte 1 - 0x00 (synchronization byte)
+    while (!(UC1IFG&UCA1TXIFG));
+    UCA1TXBUF = 0xFF;				// Byte 2 - 0xFF (synchronization byte)
+
+    while (!(UC1IFG&UCA1TXIFG));
+    UCA1TXBUF = tx_data[0];
+    while (!(UC1IFG&UCA1TXIFG));
+    UCA1TXBUF = tx_data[1];
+
+
+
+    if(tx_data[1] == 'o')
+    {
+
+    TBCTL = TBSSEL_2 + MC_2 + TBCLR;
+
+	P4SEL |= BIT1;				//P4.1 TimerB capture
+
+	TBCCTL1 = CM_1 + SCS + CAP;	// set for caputre on rising edge
+
+
+// wait until capture event occurs
+	while(!(TBCCTL1 & CCIFG));
+	TBCCTL1 &= ~CCIFG;			// clear the interrupt flag
+	temp = TBCCR1;				// take the CCR value
+
+	// set P4.1 to capture the next rising edge
+	TBCCTL1 = CM_1 + SCS + CAP;
+
+	//wait until capture event occurs
+	while(!(TBCCTL1 & CCIFG));
+
+	// switch off timer capture and caculate the frequency
+	counter = TBCCR1 - temp;
+
+	TBCCTL1 &= ~CCIFG;
+	TBCTL = 0;
+    }
+
+
+    while (!(UC1IFG&UCA1TXIFG));
+    UCA1TXBUF = counter & 0x00FF;
+    while (!(UC1IFG&UCA1TXIFG));
+    UCA1TXBUF = 0x12;
+    while (!(UC1IFG&UCA1TXIFG));
+    UCA1TXBUF = 0x13;
+/*
+    while(tx_data[i]) // Increment through array, look for null pointer (0) at end of string
+    {
+    	while (!(UC1IFG&UCA1TXIFG)); // Wait if line TX/RX module is busy with data
+        UCA1TXBUF = tx_data[i]; // Send out element i of tx_data array on UART bus
+        i++; // Increment variable for array address
+    }
+*/
 }
 
 #pragma vector=NMI_VECTOR
@@ -135,4 +238,46 @@ __interrupt void nmi_ (void)
 __interrupt void Timer_A (void)
 {
   _BIC_SR_IRQ(LPM3_bits+GIE);               // Exit LPM3 upon ISR exit
+}
+
+/**************************************************************************//**
+*
+* Port1_Isr
+*
+* @brief         Port 1 interrupt
+*
+* @param         -
+*
+* @return        -
+*
+******************************************************************************/
+#pragma vector=PORT1_VECTOR
+__interrupt void Port1_Isr(void)
+{
+  // MSP_RX_PIN state change
+  if(P1IFG & RED_RX_PIN)
+  {
+    // change output pin
+	if(P1IN & RED_RX_PIN)
+		UART_TX("ro");
+	else
+		UART_TX("rf");
+
+    // clear interrupt and change interrupt transition
+    P1IFG &= ~RED_RX_PIN;
+    P1IES ^= RED_RX_PIN;
+  }
+  // PC_RX_PIN state change
+  else if(P1IFG & IR_RX_PIN)
+  {
+	// change output pin
+	if(P1IN & IR_RX_PIN)
+	    UART_TX("io");
+    else
+	    UART_TX("if");
+
+	// clear interrupt and change interrupt transition
+	P1IFG &= ~IR_RX_PIN;
+    P1IES ^= IR_RX_PIN;
+  }
 }

@@ -70,36 +70,151 @@
 #include <msp430.h>
 #include <msp430f5529.h>
 
+#define PB_PIN		BIT1	// push button:		P1.1
+#define IR_RX_PIN	BIT2	// ir red led rx: 	p1.2
+#define RED_RX_PIN	BIT3	// red led rx: 		p1.3
+
+int i;
+
+
+void UART_TX(char * tx_data);
+
 int main(void)
 {
   WDTCTL = WDTPW + WDTHOLD;                 // Stop WDT
 
-  P3SEL |= BIT3+BIT4;                       // P3.3,4 = USCI_A0 TXD/RXD
-  UCA0CTL1 |= UCSWRST;                      // **Put state machine in reset**
-  UCA0CTL1 |= UCSSEL_2;                     // SMCLK
-  UCA0BR0 = 9;                              // 1MHz 115200 (see User's Guide)
-  UCA0BR1 = 0;                              // 1MHz 115200
-  UCA0MCTL |= UCBRS_1 + UCBRF_0;            // Modulation UCBRSx=1, UCBRFx=0
-  UCA0CTL1 &= ~UCSWRST;                     // **Initialize USCI state machine**
-  UCA0IE |= UCRXIE;                         // Enable USCI_A0 RX interrupt
+  P4DIR |= BIT7;
+  P4OUT |= BIT7;
+  P1DIR |= BIT0;
+  P1OUT &= ~BIT0;
+
+  P1DIR |= BIT5;
+  P1OUT |= BIT5;
+
+  // Uart
+  P4SEL |= BIT4+BIT5;                       // P4.3,4 = USCI_A1 TXD/RXD
+  UCA1CTL1 |= UCSWRST;                      // **Put state machine in reset**
+  UCA1CTL1 |= UCSSEL_2;                     // SMCLK
+  UCA1BR0 = 9;                              // 1MHz 115200 (see User's Guide)
+  UCA1BR1 = 0;                              // 1MHz 115200
+  UCA1MCTL |= UCBRS_1 + UCBRF_0;            // Modulation UCBRSx=1, UCBRFx=0
+  UCA1CTL1 &= ~UCSWRST;                     // **Initialize USCI state machine**
+  UCA1IE |= UCRXIE;                         // Enable USCI_A0 RX interrupt
+
+  // TimeA
+
+  TA0CTL   = TASSEL_1 + TACLR;				// ACLK, up mode
+  TA0CCR0  = 31;
+  TA0CCTL0 = CCIE;
+  TA0CTL 	  |= MC_1;							// TimerA up
+
+  // init push button pin
+  P1DIR &= ~PB_PIN;
+  P1REN |= PB_PIN;
+  P1OUT |= PB_PIN;
+
+  // set GPIO interrupts
+  P1IES |= (RED_RX_PIN + IR_RX_PIN);
+  P1IE |= (RED_RX_PIN + IR_RX_PIN);
+  P1IFG = 0;
+
 
   __bis_SR_register(LPM0_bits + GIE);       // Enter LPM0, interrupts enabled
   __no_operation();                         // For debugger
 }
 
-// Echo back RXed character, confirm TX buffer is ready first
-#pragma vector=USCI_A0_VECTOR
-__interrupt void USCI_A0_ISR(void)
+void UART_TX(char * tx_data) // Define a function which accepts a character pointer to an array
 {
-  switch(__even_in_range(UCA0IV,4))
+    unsigned int i=0;
+
+    UCA1TXBUF = 0x00;				// Byte 1 - 0x00 (synchronization byte)
+    while (!(UCA1IFG & UCTXIFG));
+    UCA1TXBUF = 0xFF;				// Byte 2 - 0xFF (synchronization byte)
+
+    while(tx_data[i]) // Increment through array, look for null pointer (0) at end of string
+    {
+    	while (!(UCA1IFG & UCTXIFG)); // Wait if line TX/RX module is busy with data
+        UCA1TXBUF = tx_data[i]; // Send out element i of tx_data array on UART bus
+        i++; // Increment variable for array address
+    }
+}
+
+// Echo back RXed character, confirm TX buffer is ready first
+#pragma vector=USCI_A1_VECTOR
+__interrupt void USCI_A1_ISR(void)
+{
+	//  P4OUT ^= BIT7;
+//	  P1OUT ^= BIT0;
+
+  switch(__even_in_range(UCA1IV,4))
   {
   case 0:break;                             // Vector 0 - no interrupt
   case 2:                                   // Vector 2 - RXIFG
-    while (!(UCA0IFG&UCTXIFG));             // USCI_A0 TX buffer ready?
-    UCA0TXBUF = UCA0RXBUF;                  // TX -> RXed character
+    while (!(UCA1IFG&UCTXIFG));             // USCI_A0 TX buffer ready?
+    UCA1TXBUF = UCA1RXBUF;                  // TX -> RXed character
     break;
   case 4:break;                             // Vector 4 - TXIFG
   default: break;
   }
 }
 
+#pragma vector=TIMER0_A0_VECTOR
+__interrupt void Timer_a(void)
+{
+	P1OUT ^= BIT5;
+	/*
+    UCA1TXBUF = 0x00;				// Byte 1 - 0x00 (synchronization byte)
+    while (!(UCA1IFG & UCTXIFG));
+    UCA1TXBUF = 0xFF;				// Byte 2 - 0xFF (synchronization byte)
+    while (!(UCA1IFG & UCTXIFG));
+    UCA1TXBUF = 0x11;				// Byte 3 - IR Heart signal (AC only)
+    while (!(UCA1IFG & UCTXIFG));
+    UCA1TXBUF = 0x12;				// Byte 4 - Heart rate data
+    while (!(UCA1IFG & UCTXIFG));
+    UCA1TXBUF = 0x13;					// Byte 5 - SaO2 data
+    */
+}
+
+
+
+/**************************************************************************//**
+*
+* Port1_Isr
+*
+* @brief         Port 1 interrupt
+*
+* @param         -
+*
+* @return        -
+*
+******************************************************************************/
+#pragma vector=PORT1_VECTOR
+__interrupt void Port1_Isr(void)
+{
+  // MSP_RX_PIN state change
+  if(P1IFG & RED_RX_PIN)
+  {
+    // change output pin
+	if(P1IN & RED_RX_PIN)
+		UART_TX("r   on");
+	else
+		UART_TX("r  off");
+
+    // clear interrupt and change interrupt transition
+    P1IFG &= ~RED_RX_PIN;
+    P1IES ^= RED_RX_PIN;
+  }
+  // PC_RX_PIN state change
+  else if(P1IFG & IR_RX_PIN)
+  {
+	    // change output pin
+	    if(P1IN & IR_RX_PIN)
+	    	UART_TX("ir  on");
+	    else
+	    	UART_TX("ir off");
+
+	    // clear interrupt and change interrupt transition
+	    P1IFG &= ~IR_RX_PIN;
+	    P1IES ^= IR_RX_PIN;
+  }
+}
