@@ -49,9 +49,9 @@ int main(void)
  // TACTL = TASSEL_1 + MC_1;                  // ACLK, up mode
 
 
-
 // An immediate Osc Fault will occur next
  // IE1 |= OFIE;                              // Enable osc fault interrupt
+
 
   // Uart
   P3SEL |= BIT6+BIT7;                       // P3.6,7 = USCI_A1 TXD/RXD
@@ -62,6 +62,22 @@ int main(void)
   UCA1MCTL = 0x00;
   UCA1CTL1 &= ~UCSWRST;                     // **Initialize USCI state machine**
  // IE2 |= UCA1RXIE;                          // Enable USCI_A0 RX interrupt
+
+
+  /*
+  {
+	  P3SEL |= BIT4+BIT5;                       // P3.4,5 = USCI_A0 TXD/RXD
+	  UCA0CTL1 |= UCSSEL_2;                     // SMCLK
+	  UCA0BR0 = 0x45;                              // 1MHz 115200
+	  UCA0BR1 = 0x00;                              // 1MHz 115200
+	 // UCA1MCTL = UCBRS2 + UCBRS0;               // Modulation UCBRSx = 5
+	  UCA0MCTL = 0x00;
+	  UCA0CTL1 &= ~UCSWRST;                     // **Initialize USCI state machine**
+  }
+  */
+
+	while (!(UC1IFG&UCA1TXIFG));
+  	  UCA1TXBUF = 0x09;
 
   // Init ports
   P3DIR |= BIT4;                            // Set led to output direction
@@ -76,12 +92,11 @@ int main(void)
   P1IE  |= (RED_RX_PIN + IR_RX_PIN);
   P1IFG = 0;
 
+
+  _BIS_SR(GIE);
   while(1)
   {
-    _BIS_SR(LPM3_bits + GIE);               // Enter LPM3, enable interrupts
-    P3OUT ^= BIT4;                          // Toggle led
-    //UART_TX("1234567890");
-    //__delay_cycles(1000000);
+	__delay_cycles(1000000);
   }
 }
 
@@ -91,7 +106,7 @@ void get_sensor_data(unsigned int led)
 	unsigned int counter = 0x0009;
 	unsigned int temp;
 
-    TBCTL = TBSSEL_2 + MC_2 + TBCLR;
+	TBCTL = TBSSEL_2 + MC_2 + TBCLR;
     TBCCTL1 = CM_1 + SCS + CAP;	// set for caputre on rising edge
 
     // wait until capture event occurs
@@ -123,6 +138,7 @@ void UART_TX(char * tx_data) // Define a function which accepts a character poin
 {
 
 	unsigned int counter, counts;
+
 
 	if(tx_data[0] == 'i')
 	{
@@ -175,7 +191,7 @@ __interrupt void nmi_ (void)
 #pragma vector=TIMERA0_VECTOR
 __interrupt void Timer_A (void)
 {
-  _BIC_SR_IRQ(LPM3_bits+GIE);               // Exit LPM3 upon ISR exit
+ // _BIC_SR_IRQ(LPM3_bits+GIE);               // Exit LPM3 upon ISR exit
 }
 
 
@@ -197,10 +213,13 @@ __interrupt void Port1_Isr(void)
   if(P1IFG & RED_RX_PIN)
   {
     // change output pin
-	if(P1IN & RED_RX_PIN)
+	if(P1IN & RED_RX_PIN){
 		get_sensor_data(RED_LED_FLAG);
+	}
 	else
+	{
 		UART_TX("rf");
+	}
 
     // clear interrupt and change interrupt transition
     P1IFG &= ~RED_RX_PIN;
@@ -212,8 +231,9 @@ __interrupt void Port1_Isr(void)
 	// change output pin
 	if(P1IN & IR_RX_PIN)
 		get_sensor_data(IR_LED_FLAG);
-    else
+    else{
 	    UART_TX("if");
+    }
 
 	// clear interrupt and change interrupt transition
 	P1IFG &= ~IR_RX_PIN;

@@ -42,7 +42,6 @@ for i in range(1,10000000):
      if b == b'if':
        k += 1
        freq = ord(freq_HSB) * 256 + ord(freq_LSB)
-       f.write("if: ");
        f.write(str(k))
        f.write(" ")
        f.write(str(freq))
@@ -55,7 +54,6 @@ for i in range(1,10000000):
      if b == b'rf':
        j += 1
        freq = ord(freq_HSB) * 256 + ord(freq_LSB)
-       f2.write("rf: ");
        f2.write(str(j))
        f2.write(" ")
        f2.write(str(freq))
