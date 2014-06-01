@@ -134,27 +134,54 @@ void get_sensor_data(unsigned int led)
   }
 
 
+#define MALENGTH 64
 void UART_TX(char * tx_data) // Define a function which accepts a character pointer to an array
 {
-
+	static unsigned int buf[MALENGTH];
+	static int offset = 0, up =0, heart_beats = 0, ir_counts =0, beats_per_second=0;
+	static int last_counter = 0, last_z=0;
 	unsigned int counter, counts;
-	static unsigned int last_counter_high;
+	int i=0;
+	int z=0;
 
-	/* filter some unexpected value. */
-	if(counter > 1000)
-	{
-		counter =  last_counter_high;
-	} else
-		last_counter_high = counter ;
+	buf[offset] = icounter > 1000 ? last_counter : icounter;
+	last_counter = icounter;
+
+	ir_counts++;
+	for (i=0; i<MALENGTH; i++)
+		z += buf[i];
+	z = z/MALENGTH;
+
+	if(up){
+		if (z < last_z) // 3 heart beat
+		{
+			up = 0;
+			if(++heart_beats == 3)
+			{
+				beats_per_second = (21600)/ir_counts;  // 21600 = 120*60*3
+				ir_counts = 0;
+				heart_beats = 0;
+			}
+		}
+	} else if (z > last_z) {
+		up = 1;
+	}
+
+	// prepare
+	last_z = z;
+	if(++offset==MALENGTH)
+		offset = 0;
+
 
 
 	if(tx_data[0] == 'i')
 	{
 		counter = icounter;
-		counts = icounts;
+		counts = beats_per_second;
+		//counts = z;
 	} else {
 		counter = rcounter;
-		counts = rcounts;
+		counts = beats_per_second;
 	}
 
     //unsigned int i=0;
@@ -177,6 +204,9 @@ void UART_TX(char * tx_data) // Define a function which accepts a character poin
     UCA1TXBUF = counts & 0x00FF;
     while (!(UC1IFG&UCA1TXIFG));
     UCA1TXBUF = (counts >> 8) & 0x00FF;
+
+    while (!(UC1IFG&UCA1TXIFG));
+    UCA1TXBUF = 0x77;
 
 }
 
@@ -222,11 +252,11 @@ __interrupt void Port1_Isr(void)
   {
     // change output pin
 	if(P1IN & RED_RX_PIN){
-		get_sensor_data(RED_LED_FLAG);
+		//get_sensor_data(RED_LED_FLAG);
 	}
 	else
 	{
-		UART_TX("rf");
+		//UART_TX("rf");
 	}
 
     // clear interrupt and change interrupt transition
