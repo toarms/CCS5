@@ -138,6 +138,14 @@ void UART_TX(char * tx_data) // Define a function which accepts a character poin
 {
 
 	unsigned int counter, counts;
+	static unsigned int last_counter_high;
+
+	/* filter some unexpected value. */
+	if(counter > 1000)
+	{
+		counter =  last_counter_high;
+	} else
+		last_counter_high = counter ;
 
 
 	if(tx_data[0] == 'i')
