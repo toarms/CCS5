@@ -252,11 +252,11 @@ __interrupt void Port1_Isr(void)
   {
     // change output pin
 	if(P1IN & RED_RX_PIN){
-		//get_sensor_data(RED_LED_FLAG);
+		get_sensor_data(RED_LED_FLAG);
 	}
 	else
 	{
-		//UART_TX("rf");
+		UART_TX("rf");
 	}
 
     // clear interrupt and change interrupt transition
